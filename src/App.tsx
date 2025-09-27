@@ -18,6 +18,27 @@ function App() {
   const [selectedLog, setSelectedLog] = useState<number | null>(null);
   const [vibe, setVibe] = useState<"positive" | "negative">("positive");
 
+    // ====== SAVE LOCALLY TO PC ======
+  const handleSaveLocal = () => {
+    if (logs.length === 0) {
+      alert("No logs to save!");
+      return;
+    }
+
+    const latestLog = logs[logs.length - 1];
+
+    // Send log to Electron backend
+    // @ts-ignore (ignore TS warning if not declared)
+    window.electronAPI.saveLog(latestLog);
+
+    // Listen for confirmation from Electron
+    // @ts-ignore
+    window.electronAPI.onSaveLogResponse((msg) => {
+      alert(msg); // shows ✅ or ❌
+    });
+  };
+
+
   // ===== FETCH LOGS FROM FIREBASE =====
   useEffect(() => {
     const fetchLogs = async () => {
@@ -85,6 +106,9 @@ function App() {
               <button className="save-button" onClick={handleSave}>
                 💾
               </button>
+              <button className="save-local-button" onClick={handleSaveLocal}>
+                💾 Local
+              </button>
             </>
           )}
         </div>
@@ -112,11 +136,17 @@ function App() {
                 placeholder="Type here..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSend();
+                  }
+                }}
               />
               <button className="send-button" onClick={handleSend}>
                 📨
               </button>
             </div>
+
           </div>
         )}
 
