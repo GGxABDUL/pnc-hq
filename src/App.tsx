@@ -1,223 +1,132 @@
+// src/App.tsx
 import React, { useState, useEffect } from "react";
-import "./App.css";
-import { app, analytics } from "./firebase";
-import { db } from "./firebase"; // Firebase connection file
-import {
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  orderBy,
-} from "firebase/firestore";
+import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
+import { db } from "./firebase";
+import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
 
-function App() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [input, setInput] = useState("");
-  const [currentPage, setCurrentPage] = useState("RV LOG");
-  const [selectedLog, setSelectedLog] = useState<number | null>(null);
-  const [vibe, setVibe] = useState<"positive" | "negative">("positive");
+// Pages
+import Login from "./pages/login";
+import Logout from "./pages/logout";
+import RVChat from "./pages/rv-chat";
+import RVLog from "./pages/rv-log";
+import RVProfile from "./pages/rv-profile";
+import RVStreak from "./pages/rv-streak";
+import RVSchedule from "./pages/rv-schedule";
+import RVStats from "./pages/rv-stats";
+import RVMonitor from "./pages/rv-monitor";
 
-    // ====== SAVE LOCALLY TO PC ======
-  const handleSaveLocal = () => {
-    if (logs.length === 0) {
-      alert("No logs to save!");
-      return;
-    }
+// Popups
+import InterestPopup from "./pages/components/popups/InterestPopup";
+import EmotionPopup from "./pages/components/popups/EmotionPopup";
+import SleepPopup from "./pages/components/popups/SleepPopup";
 
-    const latestLog = logs[logs.length - 1];
+const App: React.FC = () => {
+  const [user, setUser] = useState<any>(null);
+  const [role, setRole] = useState<"student" | "teacher" | null>(null);
+  const [currentPage, setCurrentPage] = useState<string>("profile");
 
-    // Send log to Electron backend
-    // @ts-ignore (ignore TS warning if not declared)
-    window.electronAPI.saveLog(latestLog);
+  // Popup state
+  const [showInterestPopup, setShowInterestPopup] = useState(false);
+  const [showEmotionPopup, setShowEmotionPopup] = useState(false);
+  const [showSleepPopup, setShowSleepPopup] = useState(false);
 
-    // Listen for confirmation from Electron
-    // @ts-ignore
-    window.electronAPI.onSaveLogResponse((msg) => {
-      alert(msg); // shows ✅ or ❌
-    });
-  };
+  const auth = getAuth();
 
-
-  // ===== FETCH LOGS FROM FIREBASE =====
   useEffect(() => {
-    const fetchLogs = async () => {
-      const q = query(collection(db, "logs"), orderBy("timestamp", "asc"));
-      const querySnapshot = await getDocs(q);
-      const fetchedLogs: any[] = [];
-      querySnapshot.forEach((doc) => {
-        fetchedLogs.push({ id: doc.id, ...doc.data() });
-      });
-      setLogs(fetchedLogs);
-    };
-    fetchLogs();
-  }, []);
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        setUser(u);
 
-  // ====== SEND (save into local state first) ======
-  const handleSend = () => {
-    if (input.trim() !== "") {
-      const newLog = {
-        text: input,
-        vibe: vibe,
-        timestamp: new Date(),
-      };
-      setLogs([...logs, newLog]);
-      setInput("");
-    }
+        // Determine role (placeholder)
+        if (u.email?.includes("m-")) setRole("student");
+        else if (u.email?.includes("g-")) setRole("teacher");
+
+        // === POPUP LOGIC ===
+        const userRef = doc(db, "users", u.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          if (!data.interest) {
+            setShowInterestPopup(true);
+          } else {
+            // Check if emotion logged today
+            const q1 = query(
+              collection(db, "daily"),
+              where("uid", "==", u.uid),
+              where("type", "==", "emotion"),
+              orderBy("timestamp", "desc"),
+              limit(1)
+            );
+            const eSnap = await getDocs(q1);
+            if (eSnap.empty) setShowEmotionPopup(true);
+
+            // Check if sleep logged today
+            const q2 = query(
+              collection(db, "daily"),
+              where("uid", "==", u.uid),
+              where("type", "==", "sleep"),
+              orderBy("timestamp", "desc"),
+              limit(1)
+            );
+            const sSnap = await getDocs(q2);
+            if (sSnap.empty) setShowSleepPopup(true);
+          }
+        }
+      } else {
+        setUser(null);
+        setRole(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [auth]);
+
+  if (!user) return <Login />;
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setCurrentPage("login");
   };
 
-  // ====== SAVE TO FIREBASE ======
-  const handleSave = async () => {
-    if (logs.length === 0) {
-      alert("No logs to save!");
-      return;
+  const renderPage = () => {
+    switch (currentPage) {
+      case "chat": return <RVChat />;
+      case "log": return <RVLog />;
+      case "profile": return <RVProfile user={user} role={role} />;
+      case "streak": return <RVStreak />;
+      case "schedule": return <RVSchedule />;
+      case "stats": return <RVStats />;
+      case "monitor": return role === "teacher" ? <RVMonitor user={user} role={role} /> : <RVProfile user={user} role={role} />;
+      case "logout": return <Logout onLogout={handleLogout} />;
+      default: return <RVProfile user={user} role={role} />;
     }
-
-    try {
-      const latestLog = logs[logs.length - 1];
-      await addDoc(collection(db, "logs"), latestLog);
-      alert(`Saved as ${latestLog.vibe} vibe ✅`);
-      setCurrentPage("LOG LIST");
-    } catch (error) {
-      console.error("Error saving log:", error);
-      alert("Failed to save log ❌");
-    }
-  };
-
-  // ====== TOGGLE VIBE ======
-  const toggleVibe = () => {
-    setVibe(vibe === "positive" ? "negative" : "positive");
   };
 
   return (
-    <div className="app-container">
-      {/* ===== HEADER BAR ===== */}
-      <header className="header-bar">
-        <button className="sidebar-button" onClick={() => setIsOpen(!isOpen)}>
-          ☰
-        </button>
-
-        <div className="header-right">
-          {currentPage === "RV LOG" && (
-            <>
-              <div className="vibe-pill" onClick={toggleVibe}>
-                {vibe} vibe
-              </div>
-              <button className="save-button" onClick={handleSave}>
-                💾
-              </button>
-              <button className="save-local-button" onClick={handleSaveLocal}>
-                💾 Local
-              </button>
-            </>
-          )}
-        </div>
-      </header>
-
-      {/* ===== MAIN TITLE ===== */}
-      <h1 className="title">{currentPage}</h1>
-
-      {/* ===== MAIN CONTENT ===== */}
-      <div className="main-home">
-        {/* RV LOG PAGE */}
-        {currentPage === "RV LOG" && (
-          <div className="rv-log">
-            <div className="log-area">
-              {logs.map((log, index) => (
-                <div key={index} className="log-entry">
-                  {log.vibe} vibe {index + 1}: {log.text}
-                </div>
-              ))}
-            </div>
-
-            <div className="input-bar">
-              <input
-                type="text"
-                placeholder="Type here..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleSend();
-                  }
-                }}
-              />
-              <button className="send-button" onClick={handleSend}>
-                📨
-              </button>
-            </div>
-
-          </div>
-        )}
-
-        {/* LOG LIST PAGE */}
-        {currentPage === "LOG LIST" && (
-          <div className="rv-log">
-            {selectedLog === null ? (
-              <div className="log-area">
-                {logs.map((log, index) => (
-                  <div
-                    key={index}
-                    className="log-entry clickable"
-                    onClick={() => setSelectedLog(index)}
-                  >
-                    {log.vibe} vibe {index + 1}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="log-area">
-                <h3>
-                  {logs[selectedLog].vibe} vibe {selectedLog + 1}
-                </h3>
-                <p>{logs[selectedLog].text}</p>
-                <button
-                  className="back-button"
-                  onClick={() => setSelectedLog(null)}
-                >
-                  ← Back
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* OTHER PAGES */}
-        {currentPage === "RV CHAT" && (
-          <div className="page-placeholder">💬 Welcome to RV CHAT</div>
-        )}
-        {currentPage === "RV STATS" && (
-          <div className="page-placeholder">📊 RV STATS coming soon...</div>
-        )}
-        {currentPage === "RV SCHEDULE" && (
-          <div className="page-placeholder">📅 RV SCHEDULE</div>
-        )}
-        {currentPage === "RV STREAK" && (
-          <div className="page-placeholder">🔥 RV STREAK</div>
-        )}
-        {currentPage === "RV PROFILE" && (
-          <div className="page-placeholder">👤 RV PROFILE</div>
-        )}
+    <div style={{ display: "flex", width: "100%", height: "100vh", fontFamily: "Arial, sans-serif" }}>
+      {/* Sidebar */}
+      <div style={{ width: "150px", background: "#f0f0f0", padding: "10px" }}>
+        <button onClick={() => setCurrentPage("profile")}>Profile</button>
+        <button onClick={() => setCurrentPage("streak")}>Streak</button>
+        <button onClick={() => setCurrentPage("chat")}>Chat</button>
+        <button onClick={() => setCurrentPage("log")}>Log</button>
+        <button onClick={() => setCurrentPage("schedule")}>Schedule</button>
+        <button onClick={() => setCurrentPage("stats")}>Stats</button>
+        {role === "teacher" && <button onClick={() => setCurrentPage("monitor")}>Monitor</button>}
+        <button onClick={() => setCurrentPage("logout")}>Logout</button>
       </div>
 
-      {/* ===== SIDEBAR NAVIGATION ===== */}
-      {isOpen && (
-        <nav className="sidebar-nav">
-          <ul>
-            <li onClick={() => setCurrentPage("RV LOG")}>RV LOG</li>
-            <li onClick={() => setCurrentPage("RV CHAT")}>RV CHAT</li>
-            <li onClick={() => setCurrentPage("RV STATS")}>RV STATS</li>
-            <li onClick={() => setCurrentPage("RV SCHEDULE")}>RV SCHEDULE</li>
-            <li onClick={() => setCurrentPage("RV STREAK")}>RV STREAK</li>
-            <li onClick={() => setCurrentPage("RV PROFILE")}>RV PROFILE</li>
-            <li className="rv-logout">
-              <button className="logout-button">Log out</button>
-            </li>
-          </ul>
-        </nav>
-      )}
+      {/* Main content */}
+      <div style={{ width: "400px", height: "450px", border: "1px solid #ccc", overflowY: "scroll", padding: "10px" }}>
+        {renderPage()}
+      </div>
+
+      {/* Popups */}
+      {showInterestPopup && <InterestPopup onClose={() => setShowInterestPopup(false)} />}
+      {showEmotionPopup && <EmotionPopup onClose={() => setShowEmotionPopup(false)} />}
+      {showSleepPopup && <SleepPopup onClose={() => setShowSleepPopup(false)} />}
     </div>
   );
-}
+};
 
 export default App;

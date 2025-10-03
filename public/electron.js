@@ -6,15 +6,14 @@ const fs = require("fs");
 function createMainWindow() {
   const mainWindow = new BrowserWindow({
     title: "Relevare",
-    width: 400,
-    height: 450,
+    width: 460,
+    height:510,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
     },
   });
 
-  const startUrl = url.format({
-    pathname: path.join(__dirname, "../build/index.html"), // connect to the React app
+  const startUrl = url.format({pathname: path.join(__dirname, "../build/index.html"), // connect to the React app
     protocol: "file",
     slashes: true,
   });
