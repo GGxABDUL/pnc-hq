@@ -1,4 +1,3 @@
-// src/components/popups/Popup.tsx
 import React from "react";
 
 interface PopupProps {
@@ -13,39 +12,43 @@ const Popup: React.FC<PopupProps> = ({ onClose, children }) => {
         position: "fixed",
         top: 0,
         left: 0,
-        width: "100%",
-        height: "100%",
+        right: 0,
+        bottom: 0,
         background: "rgba(0,0,0,0.5)",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        zIndex: 1000,
+        zIndex: 9999,
       }}
     >
       <div
         style={{
-          background: "white",
-          borderRadius: "8px",
+          background: "#fff",
           padding: "20px",
+          borderRadius: "10px",
           width: "300px",
           maxWidth: "90%",
-          boxShadow: "0px 2px 10px rgba(0,0,0,0.3)",
+          boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
+          position: "relative",
         }}
       >
-        {children}
         <button
           onClick={onClose}
           style={{
-            marginTop: "10px",
-            background: "#ccc",
+            position: "absolute",
+            top: 8,
+            right: 8,
+            background: "transparent",
             border: "none",
-            padding: "8px 12px",
+            fontSize: 18,
             cursor: "pointer",
-            borderRadius: "4px",
+            color: "#666",
           }}
         >
-          Close
+          ✕
         </button>
+
+        {children}
       </div>
     </div>
   );
