@@ -1,126 +1,83 @@
+// src/pages/components/popups/InterestPopup.tsx
 import React, { useState } from "react";
-import { auth, db } from "../../../firebase";
-import { doc, setDoc } from "firebase/firestore";
-import Popup from "./Popup";
+import { db, auth } from "../../../firebase";
+import { doc, updateDoc, setDoc } from "firebase/firestore";
 
-interface InterestPopupProps {
-  onClose: () => void;
-  onSaved?: () => void; // ✅ New: allows parent (App.tsx) or Profile to refresh
-}
+const InterestPopup: React.FC<{ onClose: () => void; onSaved?: () => void }> = ({
+  onClose,
+  onSaved,
+}) => {
+  const uid = auth.currentUser?.uid;
+  const [interest, setInterest] = useState({
+    age: "",
+    gender: "",
+    hobby: "",
+    sport: "",
+    subject: "",
+    food: "",
+    drink: "",
+  });
 
-const InterestPopup: React.FC<InterestPopupProps> = ({ onClose, onSaved }) => {
-  const [age, setAge] = useState("");
-  const [gender, setGender] = useState(""); // ✅ new field
-  const [hobby, setHobby] = useState("");
-  const [sport, setSport] = useState("");
-  const [subject, setSubject] = useState("");
-  const [food, setFood] = useState("");
-  const [drink, setDrink] = useState("");
-  const [saving, setSaving] = useState(false);
+  const handleChange = (key: string, value: string) => {
+    setInterest((prev) => ({ ...prev, [key]: value }));
+  };
 
   const handleSave = async () => {
-    try {
-      setSaving(true);
-      const uid = auth.currentUser?.uid;
-      if (!uid) {
-        alert("No user logged in.");
-        setSaving(false);
-        return;
-      }
+    if (!uid) return;
+    const ref = doc(db, "users", uid);
 
+    try {
+      // ✅ Safely merge the full interest object
       await setDoc(
-        doc(db, "users", uid),
-        {
-          interest: {
-            age,
-            gender,
-            hobby,
-            sport,
-            subject,
-            food,
-            drink,
-          },
-        },
-        { merge: true }
+        ref,
+        { interest },
+        { merge: true } // ensures we keep other user fields
       );
 
-      alert("✅ Interest saved!");
+      console.log("✅ Interest saved successfully:", interest);
+      onSaved?.();
       onClose();
-      onSaved && onSaved(); // ✅ trigger auto-refresh
     } catch (err) {
-      console.error("Error saving interest:", err);
-      alert("❌ Failed to save. Please try again.");
-    } finally {
-      setSaving(false);
+      console.error("❌ Failed to save interest:", err);
     }
   };
 
   return (
-    <Popup onClose={onClose}>
-      <h3>Interest Survey</h3>
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <div style={{ background: "white", padding: 20, borderRadius: 8, width: 300 }}>
+        <h3>Tell us about your interests</h3>
+        {Object.keys(interest).map((key) => (
+          <div key={key} style={{ marginBottom: 10 }}>
+            <label>
+              {key.charAt(0).toUpperCase() + key.slice(1)}:{" "}
+              <input
+                type="text"
+                value={(interest as any)[key]}
+                onChange={(e) => handleChange(key, e.target.value)}
+                style={{ width: "100%" }}
+              />
+            </label>
+          </div>
+        ))}
 
-      <input
-        placeholder="Age"
-        value={age}
-        onChange={(e) => setAge(e.target.value)}
-        style={{ display: "block", margin: "8px 0", width: "100%" }}
-      />
-      <select
-        value={gender}
-        onChange={(e) => setGender(e.target.value)}
-        style={{ display: "block", margin: "8px 0", width: "100%" }}
-      >
-        <option value="">Select Gender</option>
-        <option value="Male">Male</option>
-        <option value="Female">Female</option>
-      </select>
-      <input
-        placeholder="Hobby"
-        value={hobby}
-        onChange={(e) => setHobby(e.target.value)}
-        style={{ display: "block", margin: "8px 0", width: "100%" }}
-      />
-      <input
-        placeholder="Favorite Sport"
-        value={sport}
-        onChange={(e) => setSport(e.target.value)}
-        style={{ display: "block", margin: "8px 0", width: "100%" }}
-      />
-      <input
-        placeholder="Favorite Subject"
-        value={subject}
-        onChange={(e) => setSubject(e.target.value)}
-        style={{ display: "block", margin: "8px 0", width: "100%" }}
-      />
-      <input
-        placeholder="Favorite Food"
-        value={food}
-        onChange={(e) => setFood(e.target.value)}
-        style={{ display: "block", margin: "8px 0", width: "100%" }}
-      />
-      <input
-        placeholder="Favorite Drink"
-        value={drink}
-        onChange={(e) => setDrink(e.target.value)}
-        style={{ display: "block", margin: "12px 0", width: "100%" }}
-      />
-
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        style={{
-          background: "#4caf50",
-          color: "#fff",
-          border: "none",
-          padding: "8px 12px",
-          borderRadius: "6px",
-          cursor: "pointer",
-          width: "100%",
-        }}
-      >
-        {saving ? "Saving..." : "Save"}
-      </button>
-    </Popup>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <button onClick={onClose}>Cancel</button>
+          <button onClick={handleSave}>Save</button>
+        </div>
+      </div>
+    </div>
   );
 };
 

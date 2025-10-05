@@ -1,92 +1,53 @@
+// src/pages/rv-monitor.tsx
 import React, { useEffect, useState } from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "../firebase"; // adjust path if needed
+import { db } from "../firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import RVProfile from "./rv-profile";
 
-// Match the profile schema we fixed earlier
-interface UserProfile {
+interface Student {
   uid: string;
+  name?: string;
   email?: string;
-  role?: "student" | "teacher" | null;
-  interest?: {
-    age?: string;
-    hobby?: string;
-  } | null;
-  streak?: number;
-  lastOpened?: any;
+  role?: "student" | "teacher";
   [k: string]: any;
 }
 
-interface RVMonitorProps {
-  user: any; // Firebase User
-  role: "student" | "teacher" | null;
-}
-
-const RVMonitor: React.FC<RVMonitorProps> = ({ user, role }) => {
-  const [students, setStudents] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+const RVMonitor: React.FC<{ user: any; role: "teacher" | "student" | null }> = ({ user, role }) => {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [selectedStudentUid, setSelectedStudentUid] = useState<string | null>(null);
 
   useEffect(() => {
-    if (role !== "teacher") return;
+    const q = query(collection(db, "users"), where("role", "==", "student"));
+    const unsub = onSnapshot(q, (snap) => {
+      const arr: Student[] = snap.docs.map((d) => ({ uid: d.id, ...(d.data() as any) }));
+      setStudents(arr);
+    }, (err) => {
+      console.error("students onSnapshot error", err);
+    });
+    return () => unsub();
+  }, []);
 
-    const fetchStudents = async () => {
-      try {
-        const q = query(collection(db, "users"), where("role", "==", "student"));
-        const snapshot = await getDocs(q);
-
-        const data: UserProfile[] = snapshot.docs.map((doc) => ({
-          uid: doc.id,
-          ...doc.data(),
-        })) as UserProfile[];
-
-        setStudents(data);
-      } catch (err) {
-        console.error("Error fetching students:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStudents();
-  }, [role]);
-
-  if (role !== "teacher") {
-    return <div>Access denied. Only teachers can view this page.</div>;
-  }
-
-  if (loading) {
-    return <div>Loading student data...</div>;
+  if (selectedStudentUid) {
+    return (
+      <div>
+        <button onClick={() => setSelectedStudentUid(null)}>← Back to Student List</button>
+        <RVProfile user={user} role={role as any} studentUid={selectedStudentUid} />
+      </div>
+    );
   }
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h2>Student Monitor Dashboard</h2>
-      {students.length === 0 ? (
-        <p>No students found.</p>
-      ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Email</th>
-              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Age</th>
-              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Hobby</th>
-              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Streak</th>
-              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Last Opened</th>
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((s) => (
-              <tr key={s.uid}>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>{s.email}</td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>{s.interest?.age ?? "-"}</td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>{s.interest?.hobby ?? "-"}</td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>{s.streak ?? 0}</td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                  {s.lastOpened ? new Date(s.lastOpened.seconds * 1000).toLocaleDateString() : "-"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div>
+      <h2>RV Monitor (Teacher)</h2>
+      {students.length === 0 ? <p>No students found.</p> : (
+        <ul>
+          {students.map((s) => (
+            <li key={s.uid} style={{ marginBottom: 10 }}>
+              <strong>{s.name ?? s.email ?? "Unnamed"}</strong> ({s.email}){" "}
+              <button onClick={() => setSelectedStudentUid(s.uid)}>View</button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

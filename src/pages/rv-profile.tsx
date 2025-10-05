@@ -1,238 +1,284 @@
 import React, { useEffect, useState } from "react";
-import { db } from "../firebase";
+import { db, auth } from "../firebase";
 import {
   doc,
   onSnapshot,
-  updateDoc,
   collection,
   query,
   where,
   orderBy,
-  limit,
-  getDocs,
-  Timestamp,
+  setDoc,
+  Unsubscribe,
 } from "firebase/firestore";
 
 interface RVProfileProps {
   user: any;
   role: "student" | "teacher" | null;
+  studentUid?: string;
 }
 
 interface UserProfile {
   name?: string;
   email?: string;
   role?: "student" | "teacher" | null;
-  interest?: {
-    age?: string;
-    gender?: string;
-    hobby?: string;
-    sport?: string;
-    subject?: string;
-    food?: string;
-    drink?: string;
-  } | null;
+  interest?: Record<string, any> | null;
   streak?: number;
-  lastOpened?: any;
   [k: string]: any;
 }
 
-const formatStatus = (value: number | null) =>
-  value === null ? "Unknown" : value <= 2 ? "RED" : "GREEN";
-
-const chickenStage = (streak: number) => {
-  if (streak < 3) return { name: "Egg", emoji: "🥚", next: 3 };
-  if (streak < 7) return { name: "Hatching", emoji: "🐣", next: 7 };
-  if (streak < 14) return { name: "Chick", emoji: "🐥", next: 14 };
-  return { name: "Chicken", emoji: "🐔", next: null };
+type DailyEntry = {
+  id: string;
+  type: string;
+  value?: any;
+  hours?: number;
+  timestamp?: any;
 };
 
-const percentToNext = (streak: number) => {
-  const stage = chickenStage(streak);
-  if (!stage.next) return 100;
-  const prevThreshold =
-    stage.name === "Egg" ? 0 : stage.name === "Hatching" ? 3 : 7;
-  const range = stage.next - prevThreshold;
-  return Math.round(
-    Math.max(0, Math.min(1, (streak - prevThreshold) / range)) * 100
-  );
-};
+const interestKeys = [
+  "age",
+  "gender",
+  "hobby",
+  "sport",
+  "subject",
+  "food",
+  "drink",
+];
 
-const RVProfile: React.FC<RVProfileProps> = ({ user, role }) => {
-  const uid = user?.uid;
+const RVProfile: React.FC<RVProfileProps> = ({ user, role, studentUid }) => {
+  const uidToLoad = studentUid ?? user?.uid;
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [latestEmotion, setLatestEmotion] = useState<number | null>(null);
+  const [daily, setDaily] = useState<DailyEntry[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 🟢 Real-time listener for user profile
+  // Editing states
+  const [editing, setEditing] = useState(false);
+  const [editInterest, setEditInterest] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
-    if (!uid) return;
+    if (!uidToLoad) return;
 
-    const unsub = onSnapshot(doc(db, "users", uid), async (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setProfile(data as UserProfile);
-      } else {
-        // create new doc if missing
-        const newData = {
-          email: user.email ?? null,
-          name: user.displayName ?? "Unknown",
-          role: role ?? null,
-          createdAt: Timestamp.now(),
-        };
-        await updateDoc(doc(db, "users", uid), newData).catch(() => {});
-        setProfile(newData);
-      }
-      setLoading(false);
-    });
+    setLoading(true);
+    let unsubProfile: Unsubscribe | null = null;
+    let unsubDaily: Unsubscribe | null = null;
+    let unsubLogs: Unsubscribe | null = null;
 
-    return () => unsub();
-  }, [uid, user, role]);
+    const userRef = doc(db, "users", uidToLoad);
+    unsubProfile = onSnapshot(
+      userRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as UserProfile;
+          const fixedInterest: Record<string, string> = {};
+          for (const key of interestKeys) {
+            fixedInterest[key] = data.interest?.[key] ?? "—";
+          }
+          data.interest = fixedInterest;
+          setProfile(data);
 
-  // 🟢 Fetch latest emotion (cached or new)
-  useEffect(() => {
-    const fetchLatestEmotion = async () => {
-      if (!uid) return;
-      try {
-        const q = query(
-          collection(db, "daily"),
-          where("uid", "==", uid),
-          where("type", "==", "emotion"),
-          orderBy("timestamp", "desc"),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const d = snap.docs[0].data() as any;
-          const ts =
-            d.timestamp instanceof Timestamp
-              ? d.timestamp
-              : Timestamp.fromDate(new Date(d.timestamp));
-          setLatestEmotion(typeof d.value === "number" ? d.value : parseInt(d.value) || null);
+          if (!editing) setEditInterest(fixedInterest);
         } else {
-          setLatestEmotion(null);
+          setProfile(null);
         }
-      } catch (err) {
-        console.error("fetchLatestEmotion error", err);
-        setLatestEmotion(null);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("onSnapshot user error:", err);
+        setLoading(false);
       }
-    };
-    fetchLatestEmotion();
-  }, [uid]);
-
-  const streakNum = profile?.streak ?? 0;
-  const stage = chickenStage(streakNum);
-  const progressPercent = percentToNext(streakNum);
-  const emotionStatus = formatStatus(latestEmotion);
-
-  if (loading)
-    return (
-      <div style={{ padding: 12 }}>
-        <h3>Profile</h3>
-        <div>Loading…</div>
-      </div>
     );
 
+    const dailyQ = query(
+      collection(db, "daily"),
+      where("uid", "==", uidToLoad),
+      orderBy("timestamp", "desc")
+    );
+    unsubDaily = onSnapshot(dailyQ, (snap) => {
+      const arr: DailyEntry[] = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as any),
+      }));
+      setDaily(arr);
+    });
+
+    const logsQ = query(
+      collection(db, "logs"),
+      where("uid", "==", uidToLoad),
+      orderBy("timestamp", "desc")
+    );
+    unsubLogs = onSnapshot(logsQ, (snap) => {
+      const arr = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      setLogs(arr);
+    });
+
+    return () => {
+      unsubProfile && unsubProfile();
+      unsubDaily && unsubDaily();
+      unsubLogs && unsubLogs();
+    };
+  }, [uidToLoad, editing]);
+
+  const handleInterestChange = (key: string, value: string) => {
+    setEditInterest((p) => ({ ...p, [key]: value }));
+  };
+
+  const handleSaveInterest = async () => {
+    if (!uidToLoad) return;
+
+    const changed = Object.keys(editInterest).some((k) => {
+      const original = profile?.interest?.[k] ?? "";
+      return String(original) !== String(editInterest[k]);
+    });
+    if (!changed) {
+      setEditing(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const ref = doc(db, "users", uidToLoad);
+      setProfile((prev) => (prev ? { ...prev, interest: editInterest } : prev));
+      await setDoc(ref, { interest: editInterest }, { merge: true });
+
+      console.log("✅ Interests saved to Firestore:", editInterest);
+      setEditing(false);
+    } catch (err: any) {
+      console.error("❌ Error saving interest:", err);
+      alert("Failed to save interest. Check console for details.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formatTime = (t: any) => {
+    try {
+      return t?.toDate ? t.toDate().toLocaleString() : new Date(t).toLocaleString();
+    } catch {
+      return "—";
+    }
+  };
+
+  if (loading) return <p>Loading profile...</p>;
+  if (!profile) return <p>No profile found.</p>;
+
+  const canEdit = auth.currentUser?.uid === uidToLoad;
+
   return (
-    <div style={{ padding: 12, fontFamily: "Inter, Arial, sans-serif" }}>
-      <h3 style={{ marginTop: 0 }}>RV Profile</h3>
+    <div style={{ padding: 12 }}>
+      <h3>{studentUid ? "Student Profile" : "Your Profile"}</h3>
+      <p><strong>Name:</strong> {profile.name ?? user?.displayName ?? "—"}</p>
+      <p><strong>Email:</strong> {profile.email ?? user?.email ?? "—"}</p>
+      <p><strong>Role:</strong> {profile.role ?? role ?? "—"}</p>
 
-      <div
-        style={{
-          background: "#fff",
-          padding: 12,
-          borderRadius: 10,
-          boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 13, color: "#666" }}>Name</div>
-            <div style={{ fontWeight: 700 }}>
-              {profile?.name ?? user?.displayName ?? "—"}
-            </div>
-            <div style={{ fontSize: 13, color: "#666" }}>Email</div>
-            <div style={{ fontWeight: 700 }}>
-              {profile?.email ?? user?.email ?? "—"}
-            </div>
-          </div>
-
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 13, color: "#666" }}>Role</div>
-            <div style={{ fontWeight: 700 }}>
-              {profile?.role ?? role ?? "—"}
-            </div>
-          </div>
-        </div>
-
-        <hr
-          style={{
-            margin: "12px 0",
-            border: "none",
-            borderTop: "1px solid #eee",
-          }}
-        />
-
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 13, color: "#666" }}>Interests</div>
-          <div style={{ lineHeight: 1.6, fontWeight: 600 }}>
-            <div>Age: {profile?.interest?.age ?? "—"}</div>
-            <div>Gender: {profile?.interest?.gender ?? "—"}</div>
-            <div>Hobby: {profile?.interest?.hobby ?? "—"}</div>
-            <div>Sport: {profile?.interest?.sport ?? "—"}</div>
-            <div>Subject: {profile?.interest?.subject ?? "—"}</div>
-            <div>Food: {profile?.interest?.food ?? "—"}</div>
-            <div>Drink: {profile?.interest?.drink ?? "—"}</div>
-          </div>
-        </div>
-
-        <hr style={{ margin: "12px 0", borderTop: "1px solid #eee" }} />
-
-        <div>
-          <div style={{ fontSize: 13, color: "#666" }}>Emotion status</div>
-          <div style={{ fontWeight: 700 }}>
-            {emotionStatus}
-            {latestEmotion !== null ? ` (${latestEmotion}/5)` : ""}
-          </div>
-        </div>
-
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 13, color: "#666" }}>Streak (days)</div>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>{streakNum}</div>
-          <div style={{ fontSize: 24 }}>{stage.emoji}</div>
-          <div style={{ fontSize: 12 }}>{stage.name}</div>
-          {stage.next && (
-            <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 12 }}>
-                Progress to next stage: {progressPercent}%
-              </div>
-              <div
-                style={{
-                  background: "#eee",
-                  height: 10,
-                  borderRadius: 999,
-                  marginTop: 6,
-                }}
-              >
-                <div
-                  style={{
-                    width: `${progressPercent}%`,
-                    height: "100%",
-                    background: "#ffb74d",
-                    borderRadius: 999,
-                  }}
-                />
-              </div>
+      <h4>Interests</h4>
+      {!editing ? (
+        <>
+          <ul style={{ listStyleType: "none", padding: 0 }}>
+            {interestKeys.map((key) => (
+              <li key={key} style={{ marginBottom: 4 }}>
+                <strong>{key.charAt(0).toUpperCase() + key.slice(1)}:</strong>{" "}
+                {profile.interest?.[key] ?? "—"}
+              </li>
+            ))}
+          </ul>
+          {canEdit && (
+            <div style={{ marginTop: 8 }}>
+              <button onClick={() => setEditing(true)}>Edit Interests</button>
             </div>
           )}
+        </>
+      ) : (
+        <>
+          {interestKeys.map((key) => (
+            <div key={key} style={{ marginBottom: 8 }}>
+              <label>
+                {key.charAt(0).toUpperCase() + key.slice(1)}:
+                <input
+                  type="text"
+                  value={editInterest[key] ?? ""}
+                  onChange={(e) => handleInterestChange(key, e.target.value)}
+                  style={{ width: "100%", marginTop: 6 }}
+                />
+              </label>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={handleSaveInterest} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              onClick={() => {
+                setEditInterest(profile.interest ?? {});
+                setEditing(false);
+              }}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ===== Improved Log Layout ===== */}
+      <h4 style={{ marginTop: 16 }}>Recent Logs</h4>
+      {daily.length === 0 ? (
+        <p>No daily logs yet.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {daily.map((d) => (
+            <div
+              key={d.id}
+              style={{
+                padding: "8px",
+                border: "1px solid #eee",
+                borderRadius: "6px",
+                background: "#fafafa",
+              }}
+            >
+              <div style={{ fontSize: "12px", color: "#777", marginBottom: "4px" }}>
+                {formatTime(d.timestamp)}
+              </div>
+              <div style={{ fontSize: "14px" }}>
+                {d.type === "emotion"
+                  ? `Emotion: ${d.value}`
+                  : d.type === "sleep"
+                  ? `Sleep: ${d.hours ?? d.value} hours`
+                  : `${d.type}: ${JSON.stringify(d.value)}`}
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
+
+      <h4 style={{ marginTop: 16 }}>Journal Entries</h4>
+      {logs.length === 0 ? (
+        <p>No journal entries yet.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {logs.map((log) => (
+            <div
+              key={log.id}
+              style={{
+                padding: "8px",
+                border: "1px solid #eee",
+                borderRadius: "6px",
+                background: "#fafafa",
+              }}
+            >
+              <div style={{ fontSize: "12px", color: "#777", marginBottom: "4px" }}>
+                {formatTime(log.timestamp)}
+              </div>
+              <div>
+                <strong style={{ color: log.vibe === "positive" ? "#2e7d32" : "#c62828" }}>
+                  {log.vibe}
+                </strong>
+                : {log.text}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
