@@ -7,7 +7,7 @@ import {
 } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
-// --- Your Firebase Config ---
+// --- Firebase Config ---
 const firebaseConfig = {
   apiKey: "AIzaSyDNQ6Wqy2MPtX7via7_Txxj4uLcEDifd5M",
   authDomain: "project-hmm-e7525.firebaseapp.com",
@@ -24,20 +24,23 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
-// --- Firestore with offline persistence ---
+// --- Firestore (legacy-compatible) ---
 const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 });
 
-// Enable offline caching (IndexedDB)
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === "failed-precondition") {
-    console.warn("⚠️ Firestore persistence failed (multiple tabs open)");
-  } else if (err.code === "unimplemented") {
-    console.warn("⚠️ Firestore persistence not supported on this browser");
-  } else {
-    console.error("Firestore persistence error:", err);
-  }
-});
+// ✅ Enable offline caching
+enableIndexedDbPersistence(db)
+  .then(() => console.log("✅ Firestore persistence enabled"))
+  .catch((err) => {
+    if (err.code === "failed-precondition") {
+      console.warn("⚠️ Persistence failed (multiple tabs open)");
+    } else if (err.code === "unimplemented") {
+      console.warn("⚠️ Persistence not supported on this browser");
+    } else {
+      console.error("Firestore persistence error:", err);
+    }
+  });
 
+// --- Exports ---
 export { app, analytics, db, auth, googleProvider };

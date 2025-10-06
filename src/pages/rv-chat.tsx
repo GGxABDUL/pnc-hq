@@ -20,12 +20,17 @@ interface Message {
 
 interface ChatUser {
   uid: string;
-  name: string;
-  email: string;
-  role: string;
+  name?: string;
+  email?: string;
+  role?: string;
 }
 
-const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
+interface RVChatProps {
+  user: any;
+  role: "student" | "teacher" | null;
+}
+
+const RVChat: React.FC<RVChatProps> = ({ user, role }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [users, setUsers] = useState<ChatUser[]>([]);
@@ -34,7 +39,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  // --- Fetch user list ---
+  // --- 1. Fetch all users except self ---
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "users"), (snap) => {
       const arr = snap.docs
@@ -45,7 +50,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
     return () => unsub();
   }, [user.uid]);
 
-  // --- Load messages for selected user ---
+  // --- 2. Load and subscribe to messages ---
   useEffect(() => {
     if (!selectedUser) return;
 
@@ -55,6 +60,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
       orderBy("timestamp", "asc")
     );
 
+    // ✅ Real-time snapshot listener
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -62,31 +68,30 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
         setMessages(arr);
       },
       (err) => {
-        console.error("❌ onSnapshot error:", err);
-        alert(
-          "Permission denied while opening chat. Make sure Firestore rules allow both users."
-        );
+        console.error("❌ Snapshot error:", err);
+        alert("Permission denied or thread not accessible.");
       }
     );
 
     return () => unsub();
   }, [selectedUser, user.uid]);
 
-  // --- Auto-scroll to bottom ---
+  // --- 3. Scroll to bottom when messages update ---
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // --- Send message ---
+  // --- 4. Send a message ---
   const send = async () => {
     if (!input.trim() || !selectedUser || sending) return;
     setSending(true);
+
     try {
       const threadId = [user.uid, selectedUser.uid].sort().join("_");
       const threadRef = doc(db, "chatThreads", threadId);
       const msgCol = collection(threadRef, "messages");
 
-      // ✅ Ensure thread exists
+      // 🔹 Ensure thread exists
       const threadSnap = await getDoc(threadRef);
       if (!threadSnap.exists()) {
         await setDoc(threadRef, {
@@ -95,7 +100,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
         });
       }
 
-      // ✅ Add message
+      // 🔹 Add message document
       await addDoc(msgCol, {
         uid: user.uid,
         text: input.trim(),
@@ -104,14 +109,13 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
 
       setInput("");
     } catch (err) {
-      console.error("Send chat error:", err);
-      alert("Failed to send message. Check Firestore rules.");
+      console.error("Send error:", err);
+      alert("Failed to send message. Check rules or connection.");
     } finally {
       setSending(false);
     }
   };
 
-  // --- Handle Enter key ---
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -119,7 +123,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
     }
   };
 
-  // --- User selection screen ---
+  // --- 5. User selection list ---
   if (!selectedUser) {
     const filtered = users.filter((u) =>
       (u.name ?? u.email ?? "")
@@ -129,12 +133,12 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
 
     return (
       <div style={{ padding: 10 }}>
-        <h3>Select a user to chat</h3>
+        <h3>Select a user to chat ({role ?? "unknown"})</h3>
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or email"
+          placeholder="Search users..."
           style={{
             width: "100%",
             padding: "8px",
@@ -143,7 +147,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
             borderRadius: 6,
           }}
         />
-        <div style={{ maxHeight: 280, overflowY: "auto" }}>
+        <div style={{ maxHeight: 300, overflowY: "auto" }}>
           {filtered.length === 0 ? (
             <p>No users found.</p>
           ) : (
@@ -160,7 +164,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
                   background: "#fafafa",
                 }}
               >
-                <strong>{u.name ?? "Unnamed User"}</strong>
+                <strong>{u.name ?? "Unnamed"}</strong>
                 <div style={{ fontSize: 12, color: "#555" }}>{u.email}</div>
                 <div style={{ fontSize: 11, color: "#777" }}>
                   Role: {u.role ?? "unknown"}
@@ -173,7 +177,7 @@ const RVChat: React.FC<{ user: any; role: string | null }> = ({ user }) => {
     );
   }
 
-  // --- Chat screen ---
+  // --- 6. Chat view ---
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
