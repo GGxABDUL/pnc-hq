@@ -1,7 +1,6 @@
-// src/pages/login.tsx
 import React from "react";
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
-import { getFirestore, doc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
 const Login: React.FC = () => {
   const auth = getAuth();
@@ -49,28 +48,36 @@ const Login: React.FC = () => {
         }
       }
 
-      // ✅ Save user in Firestore with default interest
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
+      // ✅ Reference and check if the user exists
+      const userRef = doc(db, "users", user.uid);
+      const snap = await getDoc(userRef);
+
+      if (!snap.exists()) {
+        // 🟢 First time login — create user WITHOUT interest
+        await setDoc(userRef, {
           uid: user.uid,
           email: user.email,
           name: user.displayName,
           role: role,
-          interest: {
-            age: "N/A",
-            gender: "N/A",
-            hobby: "N/A",
-            sport: "N/A",
-            subject: "N/A",
-            food: "N/A",
-            drink: "N/A",
+          createdAt: new Date(),
+        });
+        console.log("✅ New user created (no interest yet).");
+      } else {
+        // 🟡 Returning user — keep existing data
+        await setDoc(
+          userRef,
+          {
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName,
+            role: role,
+            updatedAt: new Date(),
           },
-        },
-        { merge: true }
-      );
+          { merge: true }
+        );
+        console.log("✅ Returning user updated (kept interests).");
+      }
 
-      console.log("✅ Login successful:", user.email, "role:", role);
       alert(`Welcome ${user.displayName}! You are logged in as a ${role}.`);
 
     } catch (err) {

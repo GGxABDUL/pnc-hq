@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { db, auth } from "../../../firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import Popup from "./Popup";
 
 interface InterestPopupProps {
   onClose: () => void;
@@ -21,16 +20,14 @@ const InterestPopup: React.FC<InterestPopupProps> = ({ onClose, onSaved }) => {
   });
   const [visible, setVisible] = useState(false);
 
-  // 🔹 Show popup automatically when user has no "interest" yet
+  // 🔹 Auto-open when user has no interest data
   useEffect(() => {
     const checkInterest = async () => {
       if (!uid) return;
       const ref = doc(db, "users", uid);
       const snap = await getDoc(ref);
       const data = snap.data();
-      if (!data?.interest) {
-        setVisible(true);
-      }
+      if (!data?.interest) setVisible(true);
     };
     checkInterest();
   }, [uid]);
@@ -43,7 +40,6 @@ const InterestPopup: React.FC<InterestPopupProps> = ({ onClose, onSaved }) => {
     if (!uid) return;
     const ref = doc(db, "users", uid);
     try {
-      // ✅ Merge interest field without overwriting other data
       await setDoc(ref, { interest }, { merge: true });
       console.log("✅ Interest saved successfully:", interest);
       setVisible(false);
@@ -54,37 +50,140 @@ const InterestPopup: React.FC<InterestPopupProps> = ({ onClose, onSaved }) => {
     }
   };
 
-  // 🔸 Don’t render anything until popup should be shown
   if (!visible) return null;
 
   return (
-    <Popup onClose={() => { setVisible(false); onClose(); }}>
-      <h3>Tell us about your interests</h3>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 1000,
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          width: 400,
+          height: 450,
+          background: "#fff",
+          borderRadius: 12,
+          padding: "24px 20px",
+          boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          overflow: "hidden", // ✅ prevents left-right scroll
+        }}
+      >
+        {/* ❌ Close Button */}
+        <button
+          onClick={() => {
+            setVisible(false);
+            onClose();
+          }}
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 12,
+            background: "transparent",
+            border: "none",
+            fontSize: 22,
+            fontWeight: "bold",
+            cursor: "pointer",
+            color: "#666",
+          }}
+        >
+          ×
+        </button>
 
-      {Object.keys(interest).map((key) => (
-        <div key={key} style={{ marginBottom: 10 }}>
-          <label>
-            {key.charAt(0).toUpperCase() + key.slice(1)}:
-            <input
-              type="text"
-              value={(interest as any)[key]}
-              onChange={(e) => handleChange(key, e.target.value)}
-              style={{
-                display: "block",
-                width: "100%",
-                marginTop: 4,
-                padding: 6,
-              }}
-            />
-          </label>
+        {/* 📝 Title */}
+        <h2 style={{ textAlign: "center", marginBottom: 10 }}>
+          Tell us about your interests
+        </h2>
+
+        {/* 🧩 Inputs */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            overflowX: "hidden", // ✅ disables horizontal scroll
+            paddingRight: 6,
+            marginBottom: 10,
+          }}
+        >
+          {Object.keys(interest).map((key) => (
+            <div key={key} style={{ marginBottom: 12 }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  marginBottom: 4,
+                }}
+              >
+                {key.charAt(0).toUpperCase() + key.slice(1)}
+              </label>
+              <input
+                type="text"
+                value={(interest as any)[key]}
+                onChange={(e) => handleChange(key, e.target.value)}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #ccc",
+                  outline: "none",
+                  fontSize: 14,
+                }}
+              />
+            </div>
+          ))}
         </div>
-      ))}
 
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <button onClick={() => { setVisible(false); onClose(); }}>Cancel</button>
-        <button onClick={handleSave}>Save</button>
+        {/* 🔘 Buttons */}
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <button
+            onClick={() => {
+              setVisible(false);
+              onClose();
+            }}
+            style={{
+              flex: 1,
+              marginRight: 8,
+              padding: "8px 0",
+              borderRadius: 6,
+              border: "1px solid #aaa",
+              background: "#f3f3f3",
+              cursor: "pointer",
+              fontWeight: 500,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            style={{
+              flex: 1,
+              marginLeft: 8,
+              padding: "8px 0",
+              borderRadius: 6,
+              border: "none",
+              background: "#007bff",
+              color: "white",
+              cursor: "pointer",
+              fontWeight: 500,
+            }}
+          >
+            Save
+          </button>
+        </div>
       </div>
-    </Popup>
+    </div>
   );
 };
 
